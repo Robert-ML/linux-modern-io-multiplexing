@@ -1,0 +1,23 @@
+Goals:
+
+server metrics:
+- #requests
+- requests / s
+- thruput MB / s
+- latency from req servicing start to after send
+client metrics:
+- latency from before send to after recv
+
+plots:
+
+
+
+
+
+
+Later:
+- clean-up (close fd's and free memory)
+- create github
+- readme
+- pipeline
+- then move to io_uring

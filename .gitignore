@@ -1,0 +1,12 @@
+# auto-generated folders
+__pycache__
+
+# measurement folders
+bench_adam/results/*.json
+
+# generated files
+*.o
+
+# executables
+poll_server
+epoll_server

@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "./"
+            ],
+            "defines": [
+                "_POSIX_C_SOURCE=199309L",
+                "LOG_LEVEL=LOG_DEBUG",
+                "DEFAULT_BUFFER_SIZE=4096U",
+                "SERVER_ADDRESS=\"127.0.0.1\"",
+                "SERVER_PORT=8080U",
+                "CLIENT_MODE=0",
+                "SERVER_WARMUP_TIME_S=10"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
