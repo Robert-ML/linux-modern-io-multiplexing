@@ -9,6 +9,8 @@
         "EPOLLOUT",
         "EPOLLRDHUP",
         "nonn",
-        "notn"
+        "notn",
+        "pollfd",
+        "pollfdv"
     ]
 }

@@ -52,6 +52,13 @@ typedef struct pd_fd {
 } pd_fd_t;
 
 
+/**
+ * @brief: Create a timer usually used to signal the server warmup period
+ * finished and can start benchmarking.
+ */
+int create_warmup_timer(void);
+
+
 void register_signal_handler(void);
 /**
  * @brief: Signal handler that modifies the global variable to stop the server.

@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-#include <sys/timerfd.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -20,6 +19,10 @@
 #define EPOLL_WAIT_MAX_EVENTS 256
 
 
+/* =========================================================================
+ *  Structure definitions
+ * ========================================================================= */
+
 typedef struct pd_echo_connection {
     int fd;
     uint32_t buf_size;
@@ -27,15 +30,17 @@ typedef struct pd_echo_connection {
 } pd_echo_connection_t;
 
 
-/* ================================================================
- *  Benchmarking variables
- * ================================================================ */
-struct server_bench bench;
+/* =========================================================================
+ *  Global variables
+ * ========================================================================= */
+
+static struct server_bench bench;
 
 
-/* ================================================================
+/* =========================================================================
  *  Function declarations
- * ================================================================ */
+ * ========================================================================= */
+
 static void service_loop(const int listening_socket);
 
 static int create_epoll(void);
@@ -48,7 +53,6 @@ static int create_epoll(void);
 static void epoll_add_listening_socket(const int epoll_fd,
     struct pd_fd * const lfd_holder);
 
-static int create_timer(void);
 /**
  * @brief: Add the clock to the epoll instance.
  *
@@ -90,7 +94,7 @@ static void service_loop(const int listening_socket)
     int i;
     int no_events;
     const int epoll_fd = create_epoll();
-    int timer_fd = create_timer();
+    int timer_fd = create_warmup_timer();
     struct pd_fd lfd_holder = { .fd = listening_socket };
     struct pd_fd tfd_holder = { .fd = timer_fd };
     struct epoll_event evs[EPOLL_WAIT_MAX_EVENTS];
@@ -111,7 +115,7 @@ static void service_loop(const int listening_socket)
 
         sb_requests_performed(&bench, no_events);
 
-        dlog(LOG_INFO, "no_events: %d\n", no_events);
+        dlog(LOG_DEBUG, "no_events: %d\n", no_events);
 
         for (i = 0; i < no_events; ++i) {
             ev = &(evs[i]);
@@ -162,24 +166,6 @@ static void epoll_add_listening_socket(const int epoll_fd, struct pd_fd * const 
 }
 
 
-static int create_timer(void)
-{
-    int rc;
-    struct itimerspec settings;
-    const int timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
-
-    assert_nonn(timer_fd, "timerfd_create");
-
-    // set timer
-    memset(&settings, 0, sizeof(settings));
-    settings.it_value.tv_sec = SERVER_WARMUP_TIME_S;
-
-    rc = timerfd_settime(timer_fd, 0, &settings, NULL);
-    assert_zero(rc, "timerfd_settime");
-
-    return timer_fd;
-}
-
 static void epoll_add_timer(const int epoll_fd, struct pd_fd * const tfd_holder)
 {
     int rc;
@@ -224,6 +210,7 @@ static void epoll_handle_new_client(const int epoll_fd, const int listening_sock
     con = (pd_echo_connection_t *)malloc(sizeof(*con));
     assert_nnull(con, "malloc");
     con->fd = client_fd;
+    con->buf_size = 0;
 
     // add the client to the epoll
     memset(&ev, 0, sizeof(ev));
@@ -237,7 +224,9 @@ static void epoll_handle_new_client(const int epoll_fd, const int listening_sock
 
 static void handle_client_event(const struct epoll_event * const ev)
 {
+#if BENCH_MEASURE_SERVICING_LATENCY == 1
     struct timespec start, end;
+#endif
     pd_echo_connection_t * const con = (pd_echo_connection_t *)ev->data.ptr;
 
     if (ev->events & EPOLLRDHUP) {
@@ -251,7 +240,7 @@ static void handle_client_event(const struct epoll_event * const ev)
 
         con->buf_size = read_n_echo(con->fd, con->buf, sizeof(con->buf));
 
-        #if BENCH_MEASURE_SERVICING_LATENCY
+#if BENCH_MEASURE_SERVICING_LATENCY == 1
         end = now_monotonic();
         sb_record_event(&bench, start, end);
 #endif

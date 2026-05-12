@@ -35,13 +35,14 @@ int main(int argc, char **) {
 
     loop(socket_fd, argc - 1);
 
+    close(socket_fd);
+
     return 0;
 }
 
 
 static void loop(const int socket_fd, const int single_shot)
 {
-    int rc;
     while (1) {
 #ifdef REQUEST_RESPONSE_MODE
         send_n_wait(socket_fd);

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/timerfd.h>
 #include <sys/un.h>
 
 #include "../common/utils.h"
@@ -15,6 +16,23 @@
 
 volatile int server_running = 1;
 
+int create_warmup_timer(void)
+{
+    int rc;
+    struct itimerspec settings;
+    const int timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
+
+    assert_nonn(timer_fd, "timerfd_create");
+
+    // set timer
+    memset(&settings, 0, sizeof(settings));
+    settings.it_value.tv_sec = SERVER_WARMUP_TIME_S;
+
+    rc = timerfd_settime(timer_fd, 0, &settings, NULL);
+    assert_zero(rc, "timerfd_settime");
+
+    return timer_fd;
+}
 
 void register_signal_handler(void)
 {
