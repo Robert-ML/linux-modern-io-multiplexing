@@ -3,20 +3,32 @@ include ../common/Makefile.defines
 
 
 CC = gcc
-LINK.cc = $(CC)
 
-CFLAGS = -Wall -Wextra -g $(CDEFINES)
-.PHONY: all clean
+CFLAGS = -Wall -Wextra $(CDEFINES_COMMON)
 
-build: client
+CFLAGS_DEBUG = -g -Og $(CDEFINES_DEBUG)
+CFLAGS_TEST = -g -O1 $(CDEFINES_TEST)
+CFLAGS_RELEASE = -O3 $(CDEFINES_RELEASE)
 
-client: main.o
-	$(LINK.cc) -o $@ $^
 
-main.o: main.c
+.PHONY: build build_debug build_test build_release clean
+
+
+build: build_release
+
+build_debug: CFLAGS += $(CFLAGS_DEBUG)
+build_debug: client
+
+build_test: CFLAGS += $(CFLAGS_TEST)
+build_test: client
+
+build_release: CFLAGS += $(CFLAGS_RELEASE)
+build_release: client
+
+
+client: main.c
+	$(CC) $(CFLAGS) $^ -o $@
 
 
 clean:
-	-rm -f *~
-	-rm -f *.o
 	-rm -f client
