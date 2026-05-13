@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/poll.h>
@@ -35,7 +37,10 @@ static struct pollfd_vector pollfdv;
  * ========================================================================= */
 
 static void service_loop(const int listening_socket);
-static void service_events(const int ls, int * const timer, const int no_events);
+static void service_events(
+    const int ls, int * const timer, const int no_events
+);
+static void do_client_connections_cleanup(const int ls, const int timer_fd);
 static void do_exit_cleanup(const int ls);
 
 static void poll_add_fd(const int fd, const short int poll_events,
@@ -84,14 +89,30 @@ static void service_loop(const int listening_socket)
 {
     int rc;
     int no_events;
+    sigset_t block_mask, orig_mask;
     int timer_fd = create_warmup_timer();
+
+    // initialize the signal masks
+    rc = sigprocmask(SIG_BLOCK, NULL, &orig_mask);
+    assert_zero(rc, "sigprocmask get orig_mask");
+    rc = sigemptyset(&block_mask);
+    assert_zero(rc, "sigemptyset");
+    rc = sigaddset(&block_mask, SIGUSR1);
+    assert_zero(rc, "sigaddset");
 
     // register the socket and timer
     poll_add_fd(listening_socket, POLLIN, NULL);
     poll_add_fd(timer_fd, POLLIN, NULL);
 
-    while (server_running) {
-        no_events = poll(pollfdv.data, pollfdv.size, -1);
+    // there MUST NOT be a signal between the while check and the ppoll call
+    while (
+        !(rc = sigprocmask(SIG_BLOCK, &block_mask, NULL)) && server_running
+    ) {
+        assert_zero(rc, "sigprocmask");
+
+        no_events = ppoll(pollfdv.data, pollfdv.size, NULL, &orig_mask);
+        sigprocmask(SIG_SETMASK, &orig_mask, NULL);
+
         if (no_events < 0 && errno == EINTR) {
             // we just had a signal coming
             continue;
@@ -108,10 +129,7 @@ static void service_loop(const int listening_socket)
     sb_stop(&bench);
     sb_save_bench(&bench);
 
-    if (timer_fd != -1) {
-        rc = close(timer_fd);
-        assert_zero(rc, "close");
-    }
+    do_client_connections_cleanup(listening_socket, timer_fd);
 }
 
 static void service_events(const int ls, int * const timer, const int no_events)
@@ -157,20 +175,35 @@ static void service_events(const int ls, int * const timer, const int no_events)
     assert_zero(no_events - no_serviced, "Did not service all requests");
 }
 
-static void do_exit_cleanup(const int ls)
+static void do_client_connections_cleanup(const int ls, const int timer_fd)
 {
     int rc;
     uint32_t i;
 
+    // close the pd in pollfdv and free pollfdv
+    for (i = 0; i < pollfdv.size; ++i) {
+        if (pollfdv.data[i].fd == ls) {
+            continue;
+        } else if (timer_fd != -1 && pollfdv.data[i].fd == timer_fd) {
+            close_timer(timer_fd);
+        } else {
+            rc = close(pollfdv.data[i].fd);
+            assert_zero(rc, "close client socket");
+        }
+
+        free(pollfdv.pd[i]);
+    }
+}
+
+static void do_exit_cleanup(const int ls)
+{
+    int rc;
+
     rc = close(ls);
-    assert_zero(rc, "close");
+    assert_zero(rc, "close listening socket");
 
     sb_free(&bench);
 
-    // TODO: close the pd in pollfdv and free pollfdv
-    for (i = 0; i < pollfdv.size; ++i) {
-        free(pollfdv.pd[i]);
-    }
     pollfdv_free(&pollfdv);
 }
 
