@@ -143,17 +143,14 @@ static void service_loop(const int listening_socket)
     epoll_add_listening_socket(epoll_fd, &lfd_holder);
     epoll_add_timer(epoll_fd, &tfd_holder);
 
-    while (
-        !(rc = sigprocmask(
-            SIG_BLOCK, &block_mask, NULL
-        )) && server_running
-    ) {
-        assert_zero(rc, "sigprocmask");
+    // block the loop stopping signal and allow it to fire only when polling
+    rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);
+    assert_zero(rc, "sigprocmask");
 
+    while (server_running) {
         no_events = epoll_pwait(
             epoll_fd, evs, sizeof(evs) / sizeof(evs[0]), -1, &orig_mask
         );
-        sigprocmask(SIG_SETMASK, &orig_mask, NULL);
 
         if (no_events < 0 && errno == EINTR) {
             // we just had a signal coming

@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "CDEFINES",
+        "cqes",
         "DDEBUG",
         "DLOG",
         "epoll",
@@ -11,6 +12,9 @@
         "nonn",
         "notn",
         "pollfd",
-        "pollfdv"
+        "pollfdv",
+        "sqes",
+        "SQPOLL",
+        "uring"
     ]
 }

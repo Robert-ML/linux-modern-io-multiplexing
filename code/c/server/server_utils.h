@@ -67,9 +67,9 @@ void stop_server_signal_handler(int signum);
 
 
 /**
- * @brief: Creates a network socket on IPV4 standard in `SOCK_STREAM` mode.
- * Then binds it to the given `port` and allows connections from any IP
- * address (`INADDR_ANY`).
+ * @brief: Creates a network socket on IPV4 standard in `SOCK_STREAM` and
+ * `NONBLOCK` mode. Then binds it to the given `port` and allows connections
+ * from any IP address (`INADDR_ANY`).
  *
  * @return: The socket file descriptor.
  *

@@ -11,7 +11,7 @@ CFLAGS_TEST = -g -O1 $(CDEFINES_TEST)
 CFLAGS_RELEASE = -O3 $(CDEFINES_RELEASE)
 
 
-.PHONY: build build_debug build_test build_release clean
+.PHONY: build build_debug build_test build_release clean clean_full
 
 
 build: build_release
@@ -30,16 +30,22 @@ epoll_server: main.c ../server_utils.c ../server_benchmark.c ../../common/measur
 	$(CC) $(CFLAGS) $^ -o $@
 
 
-test_memory_poll: build_test
+test_memory_no_clients: build_test
+	sleep 5 && vgdb -l | awk -F'--pid=| ' '{print $$3}' | xargs kill -s USR1 &
+	valgrind --error-exitcode=101 --leak-check=full --show-leak-kinds=all --track-origins=yes --track-fds=yes -s ./epoll_server
+
+test_memory_with_clients: build_test
 	make -C ../../client/ clean
 	make -C ../../client/ build_test
 	sleep 1 && ../../client/client &> /dev/null &
 	sleep 1 && ../../client/client run_once &> /dev/null &
 	sleep 5 && vgdb -l | awk -F'--pid=| ' '{print $$3}' | xargs kill -s USR1 &
-	valgrind --error-exitcode=101 --leak-check=full --show-leak-kinds=all -s ./epoll_server
+	valgrind --error-exitcode=101 --leak-check=full --show-leak-kinds=all --track-origins=yes --track-fds=yes -s ./epoll_server
 
 
 clean:
-	-rm -f ./bench_file.json
 	-rm -f ./epoll_server
+
+clean_full: clean
+	-rm -f ./bench_file.json
 	-make -C ../../client/ clean

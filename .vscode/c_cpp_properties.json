@@ -12,7 +12,9 @@
                 "SERVER_ADDRESS=\"127.0.0.1\"",
                 "SERVER_PORT=8080U",
                 "CLIENT_MODE=0",
-                "SERVER_WARMUP_TIME_S=10"
+                "SERVER_WARMUP_TIME_S=10",
+                "IO_URING_RING_SIZE=1024U",
+                "IO_URING_RUN_IN_KERNEL_POLL_MODE=0"
             ],
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c17",

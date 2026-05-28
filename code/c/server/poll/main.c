@@ -104,14 +104,12 @@ static void service_loop(const int listening_socket)
     poll_add_fd(listening_socket, POLLIN, NULL);
     poll_add_fd(timer_fd, POLLIN, NULL);
 
-    // there MUST NOT be a signal between the while check and the ppoll call
-    while (
-        !(rc = sigprocmask(SIG_BLOCK, &block_mask, NULL)) && server_running
-    ) {
-        assert_zero(rc, "sigprocmask");
+    // block the loop stopping signal and allow it to fire only when waiting
+    rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);
+    assert_zero(rc, "sigprocmask");
 
+    while (server_running) {
         no_events = ppoll(pollfdv.data, pollfdv.size, NULL, &orig_mask);
-        sigprocmask(SIG_SETMASK, &orig_mask, NULL);
 
         if (no_events < 0 && errno == EINTR) {
             // we just had a signal coming

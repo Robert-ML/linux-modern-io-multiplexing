@@ -33,6 +33,8 @@ int main(int argc, char **) {
     socket_fd = create_ipv4_socket();
     connect_to_server(socket_fd);
 
+    dlog(LOG_DEBUG, "Client connected to server\n");
+
     loop(socket_fd, argc - 1);
 
     close(socket_fd);
