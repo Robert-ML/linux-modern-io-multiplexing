@@ -42,8 +42,10 @@ struct client_con {
     uint32_t buf_send_len;
     uint8_t buf[DEFAULT_SERVER_BUFFER_SIZE];
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
     // benchmarking members;
     struct timespec bench_start_send;
+#endif
 };
 
 

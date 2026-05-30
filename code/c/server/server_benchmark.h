@@ -6,6 +6,16 @@
 
 #include "../common/measurements.h"
 
+
+#ifndef DO_SERVER_SIDE_BENCHMARKING
+#define DO_SERVER_SIDE_BENCHMARKING 0
+#endif
+
+#ifndef BENCH_MEASURE_SERVICING_LATENCY
+#define BENCH_MEASURE_SERVICING_LATENCY 1
+#endif
+
+
 /**
  * Struct to hold the benchmarking info of the server. It holds:
  * - the number of requests performed;
