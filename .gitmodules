@@ -1,0 +1,3 @@
+[submodule "rust_echo_bench"]
+	path = rust_echo_bench
+	url = https://github.com/Robert-ML/rust_echo_bench.git
