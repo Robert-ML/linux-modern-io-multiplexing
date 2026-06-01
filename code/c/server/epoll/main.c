@@ -72,6 +72,7 @@ static void epoll_add_listening_socket(const int epoll_fd,
     struct pd_fd * const lfd_holder
 );
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
 /**
  * @brief: Add the clock to the epoll instance.
  *
@@ -81,12 +82,14 @@ static void epoll_add_listening_socket(const int epoll_fd,
 static void epoll_add_timer(const int epoll_fd,
     struct pd_fd * const tfd_holder
 );
+#endif
 static void timer_expired(struct pd_fd * const tfd_holder);
 static void close_timer(struct pd_fd * const tfd_holder);
 
-static void epoll_handle_new_client(const int epoll_fd,
+static void epoll_handle_new_clients(const int epoll_fd,
     const int listening_socket
 );
+static void epoll_handle_new_client(const int epoll_fd, const int client_fd);
 static void handle_client_event(const struct epoll_event * const ev);
 static void close_client(pd_echo_connection_t * const con);
 
@@ -135,7 +138,7 @@ static void service_loop(const int listening_socket)
 #if DO_SERVER_SIDE_BENCHMARKING == 1
     struct pd_fd tfd_holder = { .fd = create_warmup_timer() };
 #else
-    struct pd_fd tfd_holder = { .fd = -2 };
+    struct pd_fd tfd_holder = { .fd = -1 };
 #endif
     struct epoll_event evs[EPOLL_WAIT_MAX_EVENTS];
 
@@ -205,7 +208,7 @@ static void service_events(
 
         if (((struct pd_fd *)ev->data.ptr)->fd == ls) {
             // new client connection requested
-            epoll_handle_new_client(epoll_fd, ls);
+            epoll_handle_new_clients(epoll_fd, ls);
         } else if (((struct pd_fd *)ev->data.ptr)->fd == tfd_holder->fd) {
             // timer event
             timer_expired(tfd_holder);
@@ -272,6 +275,7 @@ static void epoll_add_listening_socket(const int epoll_fd, struct pd_fd * const 
 }
 
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
 static void epoll_add_timer(const int epoll_fd, struct pd_fd * const tfd_holder)
 {
     int rc;
@@ -283,6 +287,7 @@ static void epoll_add_timer(const int epoll_fd, struct pd_fd * const tfd_holder)
     rc = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, tfd_holder->fd, &ev);
     assert_zero(rc, "epoll_ctl timer add");
 }
+#endif
 
 static void timer_expired(struct pd_fd * const tfd_holder)
 {
@@ -307,14 +312,25 @@ static void close_timer(struct pd_fd * const tfd_holder)
 }
 
 
-static void epoll_handle_new_client(const int epoll_fd, const int listening_socket)
+static void epoll_handle_new_clients(const int epoll_fd, const int listening_socket)
+{
+    int client_fd;
+
+    while(1) {
+        client_fd = accept_client(listening_socket);
+        if (client_fd == -1) {
+            break;
+        }
+
+        epoll_handle_new_client(epoll_fd, client_fd);
+    }
+}
+
+static void epoll_handle_new_client(const int epoll_fd, const int client_fd)
 {
     int rc;
-    int client_fd;
     struct epoll_event ev;
     pd_echo_connection_t *con;
-
-    client_fd = accept_client(listening_socket);
 
     // allocate the client connection structure
     con = (pd_echo_connection_t *)calloc(1, sizeof(*con));

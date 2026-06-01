@@ -75,11 +75,13 @@ int create_ipv4_listening_socket(const uint16_t port);
 
 
 /**
- * @brief: Accepts a new client connection on the given listening socket.
+ * @brief: Accepts a new client connection on the given NONBLOCKING listening
+ * socket.
  *
- * @return: The socket file descriptor for the new client connection.
+ * @return: The socket file descriptor for the new client connection or -1 if
+ * there is no pending connection.
  *
- * @note: On error it crashes the program.
+ * @note: On error other than EAGAIN or EWOULDBLOCK it crashes the program.
  */
 int accept_client(const int listening_socket);
 

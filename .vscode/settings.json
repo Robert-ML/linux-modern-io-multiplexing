@@ -9,12 +9,15 @@
         "EPOLLIN",
         "EPOLLOUT",
         "EPOLLRDHUP",
+        "Harald",
+        "memcheck",
         "nonn",
         "notn",
         "pollfd",
         "pollfdv",
         "sqes",
         "SQPOLL",
+        "unconfigured",
         "uring"
     ]
 }

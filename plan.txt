@@ -1,23 +1,13 @@
-Goals:
-
-server metrics:
+client metrics:
 - #requests
 - requests / s
 - thruput MB / s
-- latency from req servicing start to after send
-client metrics:
-- latency from before send to after recv
-
-plots:
-
-
-
-
-
+- ?latency from send to after recv?
 
 Later:
-- clean-up (close fd's and free memory)
-- create github
 - readme
 - pipeline
-- then move to io_uring
+- io_uring send email about mistakes in the man page:
+- - I lost the list with them, but they where mostly in io_uring_enter man page when dereferencing flags they forgot *, and in the code to check for CQEs
+- io_uring zero copy
+- io_uring multishot accept

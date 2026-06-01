@@ -323,13 +323,16 @@ static int handle_cqe_recv(
 
     io_uring_assert_nonn(result, "CQE recv");
 
-    const int read_bytes = result;
+    const unsigned int read_bytes = result;
 
     if (read_bytes == 0) {
         // close client
         return prep_close_client_req(iou, recv_req);
-    } else if (read_bytes == sizeof(recv_req->info_con.buf)) {
-        dlog(LOG_CRIT, "recv could not be finished in one call");
+    } else if (read_bytes > DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "recv: got more than expected");
+        exit(EXIT_FAILURE);
+    } else if (read_bytes < DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "recv: got less than expected");
         exit(EXIT_FAILURE);
     }
 
@@ -367,9 +370,9 @@ static int handle_cqe_send(
 
     io_uring_assert_nonn(result, "CQE send");
 
-    const int sent_bytes = result;
-    if (sent_bytes == sizeof(send_req->info_con.buf)) {
-        dlog(LOG_CRIT, "send could not be finished in one call");
+    const unsigned int sent_bytes = result;
+    if (sent_bytes < DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "send: less than expected");
         exit(EXIT_FAILURE);
     }
 
