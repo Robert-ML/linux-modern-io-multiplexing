@@ -28,7 +28,9 @@
  *  Global variables
  * ========================================================================= */
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
 static struct server_bench bench;
+#endif
 static struct iou_op_mem_tracker mem_allocs_tracker;
 
 
@@ -50,9 +52,11 @@ static int create_accept_sqe(
     struct iou * const iou, struct iou_op * const allocated_op,
     const int listening_socket
 );
+#if DO_SERVER_SIDE_BENCHMARKING == 1
 static int create_timer_sqe(
     struct iou * const iou, struct iou_op * const allocated_op
 );
+#endif
 
 static int handle_cqe_accept(
     struct iou * const iou, struct iou_op * const accept_req, const int result
@@ -81,7 +85,9 @@ int main(int, char **)
 {
     int listening_socket;
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
     bench = sb_create(BENCH_EXPECTED_MESSAGES);
+#endif
     mem_allocs_tracker = mem_t_create();
     register_signal_handler();
 
@@ -110,10 +116,12 @@ static void service_loop(const int listening_socket)
     );
 
     struct iou_op accept_req = { .mem_tracker = NULL };
-    struct iou_op timer_req = { .mem_tracker = NULL };
-
     io_events_to_submit += create_accept_sqe(&iou, &accept_req, listening_socket);
+
+#if DO_SERVER_SIDE_BENCHMARKING == 1
+    struct iou_op timer_req = { .mem_tracker = NULL };
     io_events_to_submit += create_timer_sqe(&iou, &timer_req);
+#endif
 
     create_signal_masks(&orig_mask, &block_mask);
     // block the loop stopping signal only if io_uring_enter is blocking
@@ -136,8 +144,10 @@ static void service_loop(const int listening_socket)
         io_events_to_submit += service_cqe_events(&iou, cqe);
     }
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_stop(&bench);
     sb_save_bench(&bench);
+#endif
 
     do_service_loop_cleanup(&iou);
 }
@@ -148,7 +158,9 @@ static int service_cqe_events(
 {
     struct iou_op * const op = (struct iou_op * const)cqe->user_data;
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_requests_performed(&bench, 1);
+#endif
 
     switch (op->op)
     {
@@ -206,7 +218,9 @@ static void do_exit_cleanup(const int ls)
     rc = close(ls);
     assert_zero(rc, "close");
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_free(&bench);
+#endif
 }
 
 
@@ -246,6 +260,7 @@ static int create_accept_sqe(
     return 1;
 }
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
 static int create_timer_sqe(
     struct iou * const iou, struct iou_op * const allocated_op
 )
@@ -262,6 +277,7 @@ static int create_timer_sqe(
 
     return 1;
 }
+#endif
 
 /* =========================================================================
  *  Definitions CQE handlers
@@ -307,17 +323,20 @@ static int handle_cqe_recv(
 
     io_uring_assert_nonn(result, "CQE recv");
 
-    const int read_bytes = result;
+    const unsigned int read_bytes = result;
 
     if (read_bytes == 0) {
         // close client
         return prep_close_client_req(iou, recv_req);
-    } else if (read_bytes == sizeof(recv_req->info_con.buf)) {
-        dlog(LOG_CRIT, "recv could not be finished in one call");
+    } else if (read_bytes > DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "recv: got more than expected");
+        exit(EXIT_FAILURE);
+    } else if (read_bytes < DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "recv: got less than expected");
         exit(EXIT_FAILURE);
     }
 
-#if BENCH_MEASURE_SERVICING_LATENCY == 1
+#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
     // benchmark the start of the send part of the echo
     recv_req->info_con.bench_start_send = now_monotonic();
 #endif
@@ -342,7 +361,7 @@ static int handle_cqe_send(
 {
     int rc;
     struct iou_op *recv_req;
-#if BENCH_MEASURE_SERVICING_LATENCY == 1
+#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
     struct timespec bench_end_send;
 #endif
 
@@ -351,13 +370,13 @@ static int handle_cqe_send(
 
     io_uring_assert_nonn(result, "CQE send");
 
-    const int sent_bytes = result;
-    if (sent_bytes == sizeof(send_req->info_con.buf)) {
-        dlog(LOG_CRIT, "send could not be finished in one call");
+    const unsigned int sent_bytes = result;
+    if (sent_bytes < DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "send: less than expected");
         exit(EXIT_FAILURE);
     }
 
-#if BENCH_MEASURE_SERVICING_LATENCY == 1
+#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
     // benchmark the end of the send part of the echo
     bench_end_send = now_monotonic();
     sb_record_event(
@@ -384,8 +403,10 @@ static int handle_cqe_timer(
 {
     io_uring_assert(result == -ETIME, result, "CQE timer");
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
     dlog(LOG_INFO, "Starting to benchmark\n");
     sb_start(&bench);
+#endif
 
     return 0;
 }
@@ -423,7 +444,9 @@ static void handle_new_client(struct iou * const iou, const int socket)
     rc = iou_config_and_submit(iou, recv_req);
     io_uring_assert_zero(rc, "iou_config_and_submit(recv_req)");
 
+#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_client_connected(&bench);
+#endif
 }
 
 static int prep_close_client_req(

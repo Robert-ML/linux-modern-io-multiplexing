@@ -10,3 +10,4 @@ bench_adam/results/*.json
 # executables
 poll_server
 epoll_server
+io_uring_server

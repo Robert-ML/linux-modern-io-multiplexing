@@ -96,6 +96,9 @@ int accept_client(const int listening_socket)
         &addrlen,
         SOCK_NONBLOCK
     );
+    if (client_socket < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return -1;
+    }
     assert_nonn(client_socket, "accept");
 
     return client_socket;
@@ -108,20 +111,26 @@ int accept_client(const int listening_socket)
  */
 int read_n_echo(const int fd, uint8_t * const buf, const int buffer_size)
 {
-    int rc, read_bytes;
+    int read_bytes, sent_bytes;
 
     read_bytes = read(fd, buf, buffer_size);
     assert_nonn(read_bytes, "read\n");
-    if (read_bytes == buffer_size) {
-        dlog(LOG_CRIT, "read could not be finished in one call");
+    if (read_bytes == 0) {
+        // close client
+        return 0;
+    } else if (read_bytes > (int) DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "recv: got more than expected");
+        exit(EXIT_FAILURE);
+    } else if (read_bytes < (int) DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "recv: got less than expected");
         exit(EXIT_FAILURE);
     }
 
     // echo back the message
-    rc = write(fd, buf, read_bytes);
-    assert_nonn(rc, "write\n");
-    if (rc == buffer_size) {
-        dlog(LOG_CRIT, "write could not be finished in one call");
+    sent_bytes = write(fd, buf, read_bytes);
+    assert_nonn(sent_bytes, "write\n");
+    if (sent_bytes < (int) DEFAULT_BUFFER_SIZE) {
+        dlog(LOG_CRIT, "send: less than expected");
         exit(EXIT_FAILURE);
     }
 
