@@ -1,6 +1,9 @@
-# Linux Modern IO Multiplexing
+# High-Throughput I/O Engine
 
-This is a fun little learning project where I implemented an echo server using 3 different technologies ([poll(7)](https://man7.org/linux/man-pages/man2/poll.2.html), [epoll(7)](https://man7.org/linux/man-pages/man7/epoll.7.html), and [io_uring(7)](https://man7.org/linux/man-pages/man7/io_uring.7.html)) to see how far we have got in Linux when it comes to multiplexing IO.
+- Old title: Linux Modern IO Multiplexing
+- Old project: [Asynchronous Web Server](https://github.com/Robert-ML/linux-io_uring-server) with io_uring
+
+This is a fun learning project where I implemented an echo server using 3 different technologies ([poll(7)](https://man7.org/linux/man-pages/man2/poll.2.html), [epoll(7)](https://man7.org/linux/man-pages/man7/epoll.7.html), and [io_uring(7)](https://man7.org/linux/man-pages/man7/io_uring.7.html)) to see how far we have got in Linux when it comes to multiplexing IO.
 
 Besides implementing these, I have also run benchmarks to measure the performance of each multiplexing frameworks, and went down the rabbit hole to see where my expectations were not met.
 
@@ -100,7 +103,7 @@ For now only the metrics in tables, I will plot them later.
 |:-----------------------:|:-----:|:------:|:------:|:------:|:-------:|:------:|
 | poll                    | 55084 | 136805 | 136424 | 122223 | 1066401 | 105368 |
 | epoll                   | 54490 | 136021 | 134480 | 119111 |  102494 | 102192 |
-| io_uring                | 53606 | 140722 | 140396 | 124368 |  65650  |  88411 |
+| io_uring simple         | 53606 | 140722 | 140396 | 124368 |  65650  |  88411 |
 | io_uring SQPOLL         | 58597 | 113094 | 110955 |  99494 |  59215  |  76857 |
 
 - `MSG_SIZE = 512 bytes` | `requests / sec`
@@ -109,7 +112,7 @@ For now only the metrics in tables, I will plot them later.
 |:-----------------------:|:-----:|:------:|:------:|:------:|:------:|:------:|
 | poll                    | 53580 | 134353 | 134089 | 115984 | 105009 | 102523 |
 | epoll                   | 53723 | 134712 | 133182 | 113777 | 100376 | 100711 |
-| io_uring                | 53001 | 140244 | 139672 | 120149 |  64592 |  87916 |
+| io_uring simple         | 53001 | 140244 | 139672 | 120149 |  64592 |  87916 |
 | io_uring SQPOLL         | 57983 | 112714 | 109766 |  99188 |  53323 |  70137 |
 
 
