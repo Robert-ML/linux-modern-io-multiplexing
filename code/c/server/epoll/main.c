@@ -37,9 +37,7 @@ typedef struct pd_echo_connection {
  *  Global variables
  * ========================================================================= */
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
 static struct server_bench bench;
-#endif
 /**
  * Double linked list to keep track of connections
  */
@@ -72,7 +70,6 @@ static void epoll_add_listening_socket(const int epoll_fd,
     struct pd_fd * const lfd_holder
 );
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
 /**
  * @brief: Add the clock to the epoll instance.
  *
@@ -82,7 +79,6 @@ static void epoll_add_listening_socket(const int epoll_fd,
 static void epoll_add_timer(const int epoll_fd,
     struct pd_fd * const tfd_holder
 );
-#endif
 static void timer_expired(struct pd_fd * const tfd_holder);
 static void close_timer(struct pd_fd * const tfd_holder);
 
@@ -109,9 +105,7 @@ int main(int, char **)
 {
     int listening_socket;
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     bench = sb_create(BENCH_EXPECTED_MESSAGES);
-#endif
     register_signal_handler();
 
     printf("Epoll Echo Server (PID: %d)\n--- Starting!\n\n", getpid());
@@ -135,11 +129,7 @@ static void service_loop(const int listening_socket)
     sigset_t block_mask, orig_mask;
     const int epoll_fd = create_epoll();
     struct pd_fd lfd_holder = { .fd = listening_socket };
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     struct pd_fd tfd_holder = { .fd = create_warmup_timer() };
-#else
-    struct pd_fd tfd_holder = { .fd = -1 };
-#endif
     struct epoll_event evs[EPOLL_WAIT_MAX_EVENTS];
 
     // initialize the signal masks
@@ -152,9 +142,7 @@ static void service_loop(const int listening_socket)
 
     // register the socket and timer
     epoll_add_listening_socket(epoll_fd, &lfd_holder);
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     epoll_add_timer(epoll_fd, &tfd_holder);
-#endif
 
     // block the loop stopping signal and allow it to fire only when polling
     rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);
@@ -172,9 +160,7 @@ static void service_loop(const int listening_socket)
             assert_nonn(no_events, "epoll_wait");
         }
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
         sb_requests_performed(&bench, no_events);
-#endif
 
         dlog(LOG_DEBUG, "no_events: %d\n", no_events);
 
@@ -183,10 +169,8 @@ static void service_loop(const int listening_socket)
         );
     }
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_stop(&bench);
     sb_save_bench(&bench);
-#endif
 
     do_service_loop_cleanup(epoll_fd, &tfd_holder);
 }
@@ -248,9 +232,7 @@ static void do_exit_cleanup(const int ls)
     rc = close(ls);
     assert_zero(rc, "close");
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_free(&bench);
-#endif
 }
 
 
@@ -275,7 +257,6 @@ static void epoll_add_listening_socket(const int epoll_fd, struct pd_fd * const 
 }
 
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
 static void epoll_add_timer(const int epoll_fd, struct pd_fd * const tfd_holder)
 {
     int rc;
@@ -287,16 +268,13 @@ static void epoll_add_timer(const int epoll_fd, struct pd_fd * const tfd_holder)
     rc = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, tfd_holder->fd, &ev);
     assert_zero(rc, "epoll_ctl timer add");
 }
-#endif
 
 static void timer_expired(struct pd_fd * const tfd_holder)
 {
     close_timer(tfd_holder);
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     dlog(LOG_INFO, "Starting to benchmark\n");
     sb_start(&bench);
-#endif
 }
 
 static void close_timer(struct pd_fd * const tfd_holder)
@@ -348,16 +326,12 @@ static void epoll_handle_new_client(const int epoll_fd, const int client_fd)
     // add the client connection to the connection double linked list
     dll_connect_back(con);
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_client_connected(&bench);
-#endif
 }
 
 static void handle_client_event(const struct epoll_event * const ev)
 {
-#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
     struct timespec start, end;
-#endif
     pd_echo_connection_t * const con = (pd_echo_connection_t *)ev->data.ptr;
 
     if (ev->events & EPOLLRDHUP) {
@@ -365,16 +339,12 @@ static void handle_client_event(const struct epoll_event * const ev)
         close_client(con);
     } else if (ev->events & EPOLLIN) {
         // client sent data
-#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
         start = now_monotonic();
-#endif
 
         con->buf_size = read_n_echo(con->fd, con->buf, sizeof(con->buf));
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
         end = now_monotonic();
         sb_record_event(&bench, start, end);
-#endif
     } else {
         // unexpected
         dlog(LOG_NOTICE, "Unexpected else branch\n");

@@ -29,9 +29,7 @@ typedef struct pd_echo_connection {
  *  Global variables
  * ========================================================================= */
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
 static struct server_bench bench;
-#endif
 static struct pollfd_vector pollfdv;
 
 /* =========================================================================
@@ -70,9 +68,7 @@ int main(int, char **)
 {
     int listening_socket;
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     bench = sb_create(BENCH_EXPECTED_MESSAGES);
-#endif
     pollfdv = pollfdv_create();
     register_signal_handler();
 
@@ -94,11 +90,7 @@ static void service_loop(const int listening_socket)
     int rc;
     int no_events;
     sigset_t block_mask, orig_mask;
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     int timer_fd = create_warmup_timer();
-#else
-    int timer_fd = -1;
-#endif
 
     // initialize the signal masks
     rc = sigprocmask(SIG_BLOCK, NULL, &orig_mask);
@@ -110,9 +102,7 @@ static void service_loop(const int listening_socket)
 
     // register the socket and timer
     poll_add_fd(listening_socket, POLLIN, NULL);
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     poll_add_fd(timer_fd, POLLIN, NULL);
-#endif
 
     // block the loop stopping signal and allow it to fire only when waiting
     rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);
@@ -128,19 +118,15 @@ static void service_loop(const int listening_socket)
             assert_nonn(no_events, "poll");
         }
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
         sb_requests_performed(&bench, no_events);
-#endif
 
         dlog(LOG_DEBUG, "no_events: %d\n", no_events);
 
         service_events(listening_socket, &timer_fd, no_events);
     }
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_stop(&bench);
     sb_save_bench(&bench);
-#endif
 
     do_client_connections_cleanup(listening_socket, timer_fd);
 }
@@ -215,9 +201,7 @@ static void do_exit_cleanup(const int ls)
     rc = close(ls);
     assert_zero(rc, "close listening socket");
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_free(&bench);
-#endif
 
     pollfdv_free(&pollfdv);
 }
@@ -237,10 +221,8 @@ static void timer_expired(const int timer_fd)
 {
     close_timer(timer_fd);
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     dlog(LOG_INFO, "Starting to benchmark\n");
     sb_start(&bench);
-#endif
 }
 
 static void close_timer(const int timer_fd)
@@ -266,16 +248,12 @@ static void poll_handle_new_client(const int listening_socket)
 
     poll_add_fd(client_fd, POLLIN, con);
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1
     sb_client_connected(&bench);
-#endif
 }
 
 static int handle_client_event(const int index)
 {
-#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
     struct timespec start, end;
-#endif
     int read_bytes;
     pd_echo_connection_t * con;
     int removed_client = 0;
@@ -286,9 +264,7 @@ static int handle_client_event(const int index)
         close_client(index);
     } else if (pollfdv.data[index].revents & POLLIN) {
         // client sent data
-#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
         start = now_monotonic();
-#endif
 
         con = (pd_echo_connection_t *)pollfdv.pd[index];
         read_bytes = read_n_echo(
@@ -297,10 +273,8 @@ static int handle_client_event(const int index)
             sizeof(con->buf)
         );
 
-#if DO_SERVER_SIDE_BENCHMARKING == 1 && BENCH_MEASURE_SERVICING_LATENCY == 1
         end = now_monotonic();
         sb_record_event(&bench, start, end);
-#endif
 
         if (read_bytes == 0) {
             // the connection closed

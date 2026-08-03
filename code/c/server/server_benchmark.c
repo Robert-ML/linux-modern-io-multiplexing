@@ -10,7 +10,7 @@
 #include "../common/time_utils.h"
 #include "../common/utils.h"
 
-
+#if DO_SERVER_SIDE_BENCHMARKING == 1
 struct server_bench sb_create(const int expected_no_events)
 {
     struct server_bench instance;
@@ -60,6 +60,7 @@ void sb_requests_performed(struct server_bench * const this, const int count)
 void sb_record_event(struct server_bench * const this,
     const struct timespec start, const struct timespec end)
 {
+#if BENCH_MEASURE_SERVICING_LATENCY == 1
     int rc;
     struct timespec delta;
     uint64_t delta_ns;
@@ -83,6 +84,7 @@ void sb_record_event(struct server_bench * const this,
         sb_stop(this);
         dlog(LOG_EMERG, "could not store value, stopping benching");
     }
+#endif
 }
 
 void sb_save_bench(const struct server_bench * const this)
@@ -127,3 +129,19 @@ void sb_save_bench(const struct server_bench * const this)
 
     fclose(bench_file);
 }
+#else // do not have any implementation
+struct server_bench sb_create(const int)
+{
+    struct server_bench instance = {};
+    return instance;
+}
+void sb_free(struct server_bench * const) {}
+void sb_start(struct server_bench * const) {}
+void sb_stop(struct server_bench * const) {}
+void sb_client_connected(struct server_bench * const) {}
+
+void sb_requests_performed(struct server_bench * const, const int) {}
+void sb_record_event(struct server_bench * const,
+    const struct timespec, const struct timespec) {}
+void sb_save_bench(const struct server_bench * const) {}
+#endif
