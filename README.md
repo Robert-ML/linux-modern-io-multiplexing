@@ -57,9 +57,9 @@ These tests finish automatically after a few seconds, performing a graceful tear
 
 I test the performance of my echo servers by connecting multiple clients to them and making measurements on the client side. The client benchmarker is written in Rust and based on the work of Harald's [rust_echo_bench](https://github.com/haraldh/rust_echo_bench).
 
-The bench code spawns a thread for each client and sends a message of a fixed size to the echo server. Then it waits for the reply before sending a new message. My modification is that I ensured all threads start measuring just after all of them connected and that they ensure the messages do not get segmented.
+The bench code spawns a thread for each client and sends a message of a fixed size to the echo server. Then it waits for the reply before sending a new message. My modification is that I ensured all threads start measuring just after all of them connected.
 
-Message segmentation was another concern of mine. I do not want to send and receive a message in 2 system calls, at that point I would no longer measure the framework's multiplexing performance but how fast my machine can move data between kernel and user space. The server and the clients exit with failure if they detect a message is segmented.
+Message segmentation was another concern of mine. I do not want to send and receive a message in 2 system calls, at that point I would no longer measure the framework's multiplexing performance but how fast my machine can move data between kernel and user space. The server exits with failure if it detects a message is segmented. I experimented with not allowing segmentation on the client side too (sending and receiving messages), but testing with bigger message sizes proved difficult while keeping this constrain. I gave up on it on the client side. Testing showed no difference in measurements.
 
 
 #### Initial benchmarking idea:
@@ -101,10 +101,10 @@ For now only the metrics in tables, I will plot them later.
 
 | **framework\client no** |   1   |   10   |   100  |  1000  |   5000  |  10000 |
 |:-----------------------:|:-----:|:------:|:------:|:------:|:-------:|:------:|
-| poll                    | 55084 | 136805 | 136424 | 122223 | 1066401 | 105368 |
+| poll                    | 55084 | 136805 | 136424 | 122223 |  106640 | 105368 |
 | epoll                   | 54490 | 136021 | 134480 | 119111 |  102494 | 102192 |
-| io_uring simple         | 53606 | 140722 | 140396 | 124368 |  65650  |  88411 |
-| io_uring SQPOLL         | 63420 | 138816 | 136984 | 125604 |  64335  |  82859 |
+| io_uring simple         | 53606 | 140722 | 140396 | 124368 |   65650 |  88411 |
+| io_uring SQPOLL         | 63420 | 138816 | 136984 | 125604 |   64335 |  82859 |
 
 - `MSG_SIZE = 512 bytes` | `requests / sec`
 
