@@ -88,10 +88,10 @@ The tests were run on my machine, the clients connecting for 60 seconds to the s
 
 I set my CPU's power management software to `performance` and set the minimum CPU frequency to the maximum frequency.
 
-Using `taskset` I bound the server process to thread 1 on core 0 of my CPU. Thread 0 of core 1 is where I bound the `io_uring` SQ_POLL kernel thread. I wanted to make sure the process and the kernel thread do not jump around and end up on different cores. I also set clients to run on the next 12 threads to not jump around and preempt my server process. The last 2 threads are a hint to the scheduler to run there what else is needed by my system.
+Using `taskset` I bound the server process to thread 0 on core 1 of my CPU. Thread 0 of core 0 is where I bound the `io_uring` SQ_POLL kernel thread. I wanted to make sure the process and the kernel thread do not jump around and end up on different cores. I also set clients to run on the next 12 threads to not jump around and preempt my server process. The last 2 threads are a hint to the scheduler to run there what else is needed by my system.
 
+***Note***: Initially I had another testing methodology, pinning the server process and IO_uring SQPOLL kernel thread on the same CPU core using hyperthreading. This proved to degrade performance. A lengthier explanation can be found here: [IO Uring Echo Server](./code/c/server/io_uring/README.md).
 
-<!-- #### Why? (maybe remove) -->
 
 ### Data
 
@@ -104,7 +104,7 @@ For now only the metrics in tables, I will plot them later.
 | poll                    | 55084 | 136805 | 136424 | 122223 | 1066401 | 105368 |
 | epoll                   | 54490 | 136021 | 134480 | 119111 |  102494 | 102192 |
 | io_uring simple         | 53606 | 140722 | 140396 | 124368 |  65650  |  88411 |
-| io_uring SQPOLL         | 58597 | 113094 | 110955 |  99494 |  59215  |  76857 |
+| io_uring SQPOLL         | 63420 | 138816 | 136984 | 125604 |  64335  |  82859 |
 
 - `MSG_SIZE = 512 bytes` | `requests / sec`
 
@@ -113,7 +113,25 @@ For now only the metrics in tables, I will plot them later.
 | poll                    | 53580 | 134353 | 134089 | 115984 | 105009 | 102523 |
 | epoll                   | 53723 | 134712 | 133182 | 113777 | 100376 | 100711 |
 | io_uring simple         | 53001 | 140244 | 139672 | 120149 |  64592 |  87916 |
-| io_uring SQPOLL         | 57983 | 112714 | 109766 |  99188 |  53323 |  70137 |
+| io_uring SQPOLL         | 62373 | 137008 | 136202 | 121431 |  63450 |  83950 |
+
+- `MSG_SIZE = 2048 bytes` | `requests / sec`
+
+| **framework\client no** |   1   |   10   |   100  |  1000  |  5000  |  10000 |
+|:-----------------------:|:-----:|:------:|:------:|:------:|:------:|:------:|
+| poll                    | 49448 | 118191 | 118316 |  90469 |  75502 |  75776 |
+| epoll                   | 48945 | 119056 | 118274 |  96338 |  73214 |  69799 |
+| io_uring simple         | 47943 | 125409 | 124274 | 103431 |  59570 |  66871 |
+| io_uring SQPOLL         | 59634 | 126018 | 124517 |  98320 |  59294 |  74763 |
+
+- `MSG_SIZE = 4096 bytes` | `requests / sec`
+
+| **framework\client no** |   1   |   10   |   100  |  1000  |  5000  |  10000 |
+|:-----------------------:|:-----:|:------:|:------:|:------:|:------:|:------:|
+| poll                    | 47869 | 115537 | 113552 |  91663 |  87007 |  84164 |
+| epoll                   | 47835 | 114348 | 112820 |  89321 |  71556 |  69176 |
+| io_uring simple         | 46828 | 121742 | 121214 |  96228 |  55977 |  63325 |
+| io_uring SQPOLL         | 57779 | 121298 | 120519 |  97185 |  56557 |  65401 |
 
 
 ### Results

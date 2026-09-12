@@ -3,6 +3,46 @@
 The server runs in 2 modes: simple and `SQPOLL`.
 
 
+## Discussion on performance degradation when using hyperthreading
+While collecting benchmarks, I noticed the IO_uring echo server in SQPOLL mode was underperforming compared to the simple mode. The opposite was to be expected. As soon as we had a few clients, the performance degradation is seen in the following measurements:
+
+- `MSG_SIZE = 128 bytes` | `requests / sec`
+
+| **framework\client no** |   1   |   10   |   100  |  1000  |   5000  |  10000 |
+|:-----------------------:|:-----:|:------:|:------:|:------:|:-------:|:------:|
+| io_uring simple         | 53606 | 140722 | 140396 | 124368 |  65650  |  88411 |
+| io_uring SQPOLL         | 58597 | 113094 | 110955 |  99494 |  59215  |  76857 |
+
+- `MSG_SIZE = 512 bytes` | `requests / sec`
+
+| **framework\client no** |   1   |   10   |   100  |  1000  |  5000  |  10000 |
+|:-----------------------:|:-----:|:------:|:------:|:------:|:------:|:------:|
+| io_uring simple         | 53001 | 140244 | 139672 | 120149 |  64592 |  87916 |
+| io_uring SQPOLL         | 57983 | 112714 | 109766 |  99188 |  53323 |  70137 |
+
+While pondering for a few days, by chance I realized a mistake in my methodology. I was running CPU intensive tasks in hyperthreading mode.
+
+When starting the IO_uring SQPOLL kernel thread, I was pinning it to thread 0 on CPU 0, while pinning my user space echo server process to thread 1 on CPU 0. My server is doing busy pooling, and the kernel thread does the same to consume submission requests, thus none of them want to release the CPU core.
+
+Hyperthreading is simulating as having 2 separate cores, but their performance is not the same as 2 different cores. CPU intensive processes see this difference the most, their performance being degraded compared to being scheduled on 2 separate physical cores.
+
+The updated testing, and running, methodology is for the echo server process to be scheduled on the first thread core 1, and for the SQPOLL kernel thread when active on the first thread on core 0. Doing this, the performance degradation disappears as seen in the updated benchmarks:
+
+- `MSG_SIZE = 128 bytes` | `requests / sec`
+
+| **framework\client no** |   1   |   10   |   100  |  1000  |   5000  |  10000 |
+|:-----------------------:|:-----:|:------:|:------:|:------:|:-------:|:------:|
+| io_uring simple         | 53606 | 140722 | 140396 | 124368 |  65650  |  88411 |
+| io_uring SQPOLL         | 0 | 0 | 0 |  0 |  0  |  0 |
+
+- `MSG_SIZE = 512 bytes` | `requests / sec`
+
+| **framework\client no** |   1   |   10   |   100  |  1000  |  5000  |  10000 |
+|:-----------------------:|:-----:|:------:|:------:|:------:|:------:|:------:|
+| io_uring simple         | 53001 | 140244 | 139672 | 120149 |  64592 |  87916 |
+| io_uring SQPOLL         | 0 | 0 | 0 |  0 |  0 |  0 |
+
+
 ## Discussion on memory barriers needed by io_uring
 
 This is more a note to my future self, or any other person who came across this and will be glad of the explanation about the necessity of the memory barrier. It is important to specify this code is functional only when a single thread is submitting to the SQ_ring.
