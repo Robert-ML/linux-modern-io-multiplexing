@@ -44,6 +44,15 @@ test_memory_with_clients: build_test
 	valgrind --error-exitcode=101 --leak-check=full --show-leak-kinds=all --track-origins=yes --track-fds=yes -s ./io_uring_server
 
 
+run_profiling: CFLAGS += -g
+run_profiling: build_release
+	make -C ../../client/ clean
+	make -C ../../client/ build_test
+	sleep 1 && ../../client/client &> /dev/null &
+	sleep 10 && vgdb -l | awk -F'--pid=| ' '{print $$3}' | xargs kill -s USR1 &
+	valgrind --error-exitcode=101 --tool=callgrind -s ./io_uring_server
+
+
 clean:
 	-rm -f ./io_uring_server
 
