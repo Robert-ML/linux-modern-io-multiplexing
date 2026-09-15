@@ -23,6 +23,11 @@
 #error "Define if IO Uring should run in kernel poll mode (1 or 0)"
 #endif
 
+/* Announce CQE consumption in batches */
+#define IO_URING_CQE_BATCHING 256U
+/* Announce SQE submission in batches */
+#define IO_URING_SQE_BATCHING 256U
+
 
 /* =========================================================================
  *  Global variables
@@ -42,6 +47,16 @@ static int service_cqe_events(
 );
 static void do_service_loop_cleanup(struct iou * const iou);
 static void do_exit_cleanup(const int ls);
+
+/* Consumes CQE/SQE if batching demanded or we are forcing it. Returns 0 if any
+events were submitted. */
+static int handle_cqe_batching(
+    struct iou * const iou, const unsigned int io_events_completed,
+    const int force_consumption
+);
+static int handle_sqe_batching(
+    struct iou * const iou, const unsigned int io_requests_submitted
+);
 
 static void create_signal_masks(
     sigset_t * const o_orig_mask, sigset_t * const o_block_mask
@@ -102,6 +117,7 @@ static void service_loop(const int listening_socket)
 {
     int rc;
     int io_events_to_submit = 0;
+    int io_events_completed = 0;
     sigset_t orig_mask, block_mask;
     struct io_uring_cqe cqe_storage, *cqe;
     struct iou iou = iou_create(
@@ -123,17 +139,24 @@ static void service_loop(const int listening_socket)
     }
 
     while (server_running) {
-        cqe = iou_get_cqe(&iou, &cqe_storage);
+        cqe = iou_get_cqe_peek(&iou, io_events_completed, &cqe_storage);
 
+        // check if we do not have any more completed events
         if (cqe == NULL) {
+            io_events_completed = handle_cqe_batching(&iou, io_events_completed, 1);
+
             iou_enter_or_wake(&iou, io_events_to_submit, &orig_mask);
             io_events_to_submit = 0;
             continue;
         }
 
+        io_events_completed += 1;
+        io_events_completed = handle_cqe_batching(&iou, io_events_completed, 0);
+
         dlog(LOG_DEBUG, "Got CQE: user_data: %p | op: %d\n", (void*)cqe->user_data, ((struct iou_op *)cqe->user_data)->op);
 
         io_events_to_submit += service_cqe_events(&iou, cqe);
+        io_events_to_submit = handle_sqe_batching(&iou, io_events_to_submit);
     }
 
     sb_stop(&bench);
@@ -261,6 +284,38 @@ static int create_timer_sqe(
     io_uring_assert_zero(rc, "iou_config_and_submit(timer_req)");
 
     return 1;
+}
+
+static int handle_cqe_batching(
+    struct iou * const iou, const unsigned int io_events_completed,
+    const int force_consumption
+)
+{
+    if (
+        (io_events_completed > IO_URING_CQE_BATCHING)
+        || (force_consumption && io_events_completed)
+    ) {
+        iou_cqe_consume(iou, io_events_completed);
+        return 0;
+    }
+
+    return io_events_completed;
+}
+
+static int handle_sqe_batching(
+    struct iou * const iou, const unsigned int io_requests_submitted
+)
+{
+    if (IO_URING_RUN_IN_KERNEL_POLL_MODE) {
+        return io_requests_submitted;
+    }
+
+    if (io_requests_submitted > IO_URING_SQE_BATCHING) {
+        iou_notify_submissions(iou, io_requests_submitted);
+        return 0;
+    }
+
+    return io_requests_submitted;
 }
 
 /* =========================================================================

@@ -136,14 +136,25 @@ struct iou {
 struct iou iou_create(const uint32_t ring_size, const int use_kernel_pooling);
 void iou_free(struct iou * const iou);
 /**
- * @brief: Performs `io_enter`, taking into account if the ring is configured
- * in kernel thread poll mode. `sig_mask` is used as described in
- * `io_uring_enter(2)` man page.
+ * @brief: Performs `io_enter` and waits for at least a completion event, or
+ * wakes kernel thread if is configured SQ_POLL mode. `sig_mask` is used as
+ * described in `io_uring_enter(2)` man page.
  */
 void iou_enter_or_wake(
     struct iou * const iou, const unsigned int to_submit,
     sigset_t * const sig_mask
 );
+
+/**
+ * @brief: Performs `io_enter` without waiting for completion events to finish,
+ * only with the purpose of notifying the kernel new additions to the SQE ring.
+ *
+ * @note: Not to be used when IO Uring is in SQ_POLL mode.
+ */
+void iou_notify_submissions(
+    struct iou * const iou, const unsigned int to_submit
+);
+
 
 /**
  * @brief: This function takes the desired operation and makes sure to submit
@@ -171,6 +182,32 @@ int iou_config_and_submit(struct iou * const iou, struct iou_op * const op);
 struct io_uring_cqe * iou_get_cqe(
     struct iou * const iou, struct io_uring_cqe * const cqe_out
 );
+/**
+ * @brief: Similar to the above function, with the difference that it only
+ * tries to get the CQE at the `offset` from the CQE head. The user must clear
+ * manually the CQE and announce the CQEs were consumed to the ring by calling
+ * `iou_cqe_consume`.
+ *
+ * Extra params compared to the above:
+ * @param offset: The offset at which we want to probe for a CQE, 0 indexed.
+ */
+struct io_uring_cqe * iou_get_cqe_peek(
+    struct iou * const iou, const unsigned int offset,
+    struct io_uring_cqe * const cqe_out
+);
+
+/**
+ * @brief: Consumes from the CQE ring the `amount` of events given, or as many
+ * as there are in the CQE.
+ *
+ * @param iou: IO Uring struct with the ring info.
+ * @param amount: How many CQEs to be attempted to be consumed.
+ *
+ * @return: The number of CQEs that were consumed: at most `amount`, at least
+ * how many were found in the CQE ring.
+ */
+int iou_cqe_consume(struct iou * const iou, const unsigned int amount);
+
 
 void io_uring_debug_print_rings(const struct iou * const iou);
 

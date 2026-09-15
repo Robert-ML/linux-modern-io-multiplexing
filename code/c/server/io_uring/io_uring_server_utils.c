@@ -67,6 +67,9 @@ static struct io_uring_params iou_config_params(const int use_kernel_pooling)
         // do not get interrupted when a CE appears
         p.flags |= IORING_SETUP_COOP_TASKRUN;
 
+        // eliminate cross-core task work contention
+        p.flags |= IORING_SETUP_DEFER_TASKRUN;
+
         return p;
     }
 
@@ -254,6 +257,27 @@ void iou_enter_or_wake(
 
 
 /* =========================================================================
+ *  Definition for `iou_notify_submissions`
+ * ========================================================================= */
+
+void iou_notify_submissions(
+    struct iou * const iou, const unsigned int to_submit
+)
+{
+    int rc;
+
+    rc = io_uring_enter(
+        iou->ring_fd, to_submit, 0, IORING_ENTER_GETEVENTS, NULL
+    );
+    io_uring_assert(
+        (rc >= 0) || (rc == -EINTR), rc,
+        "io_uring_enter(IORING_ENTER_GETEVENTS)"
+    );
+    return;
+}
+
+
+/* =========================================================================
  *  Definition and helpers for `iou_config_and_submit`
  * ========================================================================= */
 
@@ -291,6 +315,56 @@ static void iou_submit_sqe(
 {
     iou->sq_ring.array[sqe_acquired.index] = sqe_acquired.index;
     atomic_store_explicit(iou->sq_ring.tail, sqe_acquired.tail + 1, memory_order_release);
+}
+
+/**
+ * @brief: Prepares the `sqe` based on the given `op` (operation).
+ *
+ * @param sqe: Valid Submission Queue Entry struct.
+ * @param op: Description of the operation to be performed by IO_Uring.
+ *
+ * @return: 0 if it could submit it, otherwise a negative number of error code.
+ */
+static int iou_prep_sqe_for_op(
+    struct io_uring_sqe * const sqe, struct iou_op * const op
+)
+{
+    if (sqe == NULL) {
+        return -EBUSY;
+    }
+
+        // store the user data
+    sqe->user_data = (unsigned long long) op;
+
+    // further configure the SQE according to the op
+    switch (op->op)
+    {
+    case ACCEPTED_CONNECTION:
+        iou_prep_accept_sqe(&op->info_accept, sqe);
+        break;
+
+    case CLOSE_CONNECTION:
+        iou_prep_close_sqe(&op->info_con, sqe);
+        break;
+
+    case RECV_FROM_CLIENT:
+        iou_prep_recv_sqe(&op->info_con, sqe);
+        break;
+
+    case SEND_TO_CLIENT:
+        iou_prep_send_sqe(&op->info_con, sqe);
+        break;
+
+    case TIMER_EXPIRED:
+        iou_prep_timer_sqe(&op->info_timer, sqe);
+        break;
+
+    default:
+        dlog(LOG_WARNING, "Operation not treated in switch: %d\n", op->op);
+        return -EINVAL;
+    }
+
+    return 0;
 }
 
 static void iou_prep_accept_sqe(
@@ -349,41 +423,12 @@ static void iou_prep_timer_sqe(
 
 int iou_config_and_submit(struct iou * const iou, struct iou_op * const op)
 {
+    int rc;
     struct iou_acquired_sqe_data sqe_acquired = iou_acquire_sqe(iou);
 
-    if (sqe_acquired.sqe == NULL) {
-        return -EBUSY;
-    }
-
-    // store the user data
-    sqe_acquired.sqe->user_data = (unsigned long long) op;
-
-    // further configure the SQE according to the op
-    switch (op->op)
-    {
-    case ACCEPTED_CONNECTION:
-        iou_prep_accept_sqe(&op->info_accept, sqe_acquired.sqe);
-        break;
-
-    case CLOSE_CONNECTION:
-        iou_prep_close_sqe(&op->info_con, sqe_acquired.sqe);
-        break;
-
-    case RECV_FROM_CLIENT:
-        iou_prep_recv_sqe(&op->info_con, sqe_acquired.sqe);
-        break;
-
-    case SEND_TO_CLIENT:
-        iou_prep_send_sqe(&op->info_con, sqe_acquired.sqe);
-        break;
-
-    case TIMER_EXPIRED:
-        iou_prep_timer_sqe(&op->info_timer, sqe_acquired.sqe);
-        break;
-
-    default:
-        dlog(LOG_WARNING, "Operation not treated in switch: %d\n", op->op);
-        return -EINVAL;
+    rc = iou_prep_sqe_for_op(sqe_acquired.sqe, op);
+    if (rc) {
+        return rc;
     }
 
     iou_submit_sqe(iou, sqe_acquired);
@@ -393,11 +438,29 @@ int iou_config_and_submit(struct iou * const iou, struct iou_op * const op)
 
 
 /* =========================================================================
- *  Definition for `iou_get_cqe`
+ *  Definition and helpers for `iou_get_cqe` and the CQE function access family
  * ========================================================================= */
 
 struct io_uring_cqe * iou_get_cqe(
     struct iou * const iou, struct io_uring_cqe * const cqe_out
+)
+{
+    struct io_uring_cqe *cqe_extracted = iou_get_cqe_peek(
+        iou, 0, cqe_out
+    );
+    if (cqe_extracted == NULL) {
+        return cqe_extracted;
+    }
+
+    /* expected to return 1 */
+    iou_cqe_consume(iou, 1);
+
+    return cqe_out;
+}
+
+struct io_uring_cqe * iou_get_cqe_peek(
+    struct iou * const iou, const unsigned int offset,
+    struct io_uring_cqe * const cqe_out
 )
 {
     struct io_uring_cqe *cqe_extracted;
@@ -406,22 +469,36 @@ struct io_uring_cqe * iou_get_cqe(
     head = *iou->cq_ring.head;
 
     // check there is a completed event
-    if (head == atomic_load_explicit(iou->cq_ring.tail, memory_order_acquire)) {
+    if (head + offset >= atomic_load_explicit(iou->cq_ring.tail, memory_order_acquire)) {
         return NULL;
     }
 
     // extract the CQE
-    index = head & *(iou->cq_ring.ring_mask);
+    index = (head + offset) & *(iou->cq_ring.ring_mask);
     cqe_extracted = &iou->cq_ring.cqes[index];
 
     // save the CQE info
     memcpy(cqe_out, cqe_extracted, sizeof(*cqe_extracted));
 
-    // consume the CQE and announce it
-    ++head;
+    return cqe_out;
+}
+
+int iou_cqe_consume(struct iou * const iou, const unsigned int amount)
+{
+    unsigned int head, tail, amount_consumed;
+
+    // determine the limits of the CQE ring at this moment
+    head = *iou->cq_ring.head;
+    tail = atomic_load_explicit(iou->cq_ring.tail, memory_order_acquire);
+
+    // consume a safe amount
+    amount_consumed = MIN(amount, tail - head);
+
+    // announce the consumption of the CQEs
+    head += amount_consumed;
     atomic_store_explicit(iou->cq_ring.head, head, memory_order_release);
 
-    return cqe_out;
+    return amount_consumed;
 }
 
 
