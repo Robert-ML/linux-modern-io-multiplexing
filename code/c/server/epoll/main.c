@@ -129,7 +129,9 @@ static void service_loop(const int listening_socket)
     sigset_t block_mask, orig_mask;
     const int epoll_fd = create_epoll();
     struct pd_fd lfd_holder = { .fd = listening_socket };
-    struct pd_fd tfd_holder = { .fd = create_warmup_timer() };
+    /* Disabled timer that starts benchmarking inside the server */
+    // struct pd_fd tfd_holder = { .fd = create_warmup_timer() };
+    struct pd_fd tfd_holder = { .fd = -1 };
     struct epoll_event evs[EPOLL_WAIT_MAX_EVENTS];
 
     // initialize the signal masks
@@ -142,7 +144,8 @@ static void service_loop(const int listening_socket)
 
     // register the socket and timer
     epoll_add_listening_socket(epoll_fd, &lfd_holder);
-    epoll_add_timer(epoll_fd, &tfd_holder);
+    /* Disabled timer that starts benchmarking inside the server */
+    // epoll_add_timer(epoll_fd, &tfd_holder);
 
     // block the loop stopping signal and allow it to fire only when polling
     rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);

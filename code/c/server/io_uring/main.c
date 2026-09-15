@@ -65,9 +65,10 @@ static int create_accept_sqe(
     struct iou * const iou, struct iou_op * const allocated_op,
     const int listening_socket
 );
-static int create_timer_sqe(
-    struct iou * const iou, struct iou_op * const allocated_op
-);
+/* Disabled timer that starts benchmarking inside the server */
+// static int create_timer_sqe(
+//     struct iou * const iou, struct iou_op * const allocated_op
+// );
 
 static int handle_cqe_accept(
     struct iou * const iou, struct iou_op * const accept_req, const int result
@@ -128,8 +129,9 @@ static void service_loop(const int listening_socket)
     struct iou_op accept_req = { .mem_tracker = NULL };
     io_events_to_submit += create_accept_sqe(&iou, &accept_req, listening_socket);
 
-    struct iou_op timer_req = { .mem_tracker = NULL };
-    io_events_to_submit += create_timer_sqe(&iou, &timer_req);
+    /* Disabled timer that starts benchmarking inside the server */
+    // struct iou_op timer_req = { .mem_tracker = NULL };
+    // io_events_to_submit += create_timer_sqe(&iou, &timer_req);
 
     create_signal_masks(&orig_mask, &block_mask);
     // block the loop stopping signal only if io_uring_enter is blocking
@@ -269,22 +271,23 @@ static int create_accept_sqe(
     return 1;
 }
 
-static int create_timer_sqe(
-    struct iou * const iou, struct iou_op * const allocated_op
-)
-{
-    int rc;
-    struct iou_op * const timer_req = allocated_op;
+/* Disabled timer that starts benchmarking inside the server */
+// static int create_timer_sqe(
+//     struct iou * const iou, struct iou_op * const allocated_op
+// )
+// {
+//     int rc;
+//     struct iou_op * const timer_req = allocated_op;
 
-    timer_req->op = TIMER_EXPIRED;
-    timer_req->info_timer.tv_sec = 10;
-    timer_req->info_timer.tv_nsec = 0;
+//     timer_req->op = TIMER_EXPIRED;
+//     timer_req->info_timer.tv_sec = 10;
+//     timer_req->info_timer.tv_nsec = 0;
 
-    rc = iou_config_and_submit(iou, timer_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(timer_req)");
+//     rc = iou_config_and_submit(iou, timer_req);
+//     io_uring_assert_zero(rc, "iou_config_and_submit(timer_req)");
 
-    return 1;
-}
+//     return 1;
+// }
 
 static int handle_cqe_batching(
     struct iou * const iou, const unsigned int io_events_completed,

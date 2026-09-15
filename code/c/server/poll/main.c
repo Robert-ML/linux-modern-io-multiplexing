@@ -90,7 +90,9 @@ static void service_loop(const int listening_socket)
     int rc;
     int no_events;
     sigset_t block_mask, orig_mask;
-    int timer_fd = create_warmup_timer();
+    /* Disabled timer that starts benchmarking inside the server */
+    // int timer_fd = create_warmup_timer();
+    int timer_fd = -1;
 
     // initialize the signal masks
     rc = sigprocmask(SIG_BLOCK, NULL, &orig_mask);
@@ -102,7 +104,8 @@ static void service_loop(const int listening_socket)
 
     // register the socket and timer
     poll_add_fd(listening_socket, POLLIN, NULL);
-    poll_add_fd(timer_fd, POLLIN, NULL);
+    /* Disabled timer that starts benchmarking inside the server */
+    // poll_add_fd(timer_fd, POLLIN, NULL);
 
     // block the loop stopping signal and allow it to fire only when waiting
     rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);
