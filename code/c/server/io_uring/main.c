@@ -363,12 +363,16 @@ static int handle_cqe_recv(
     // first mark the connection as not busy anymore
     recv_req->info_con.busy = 0;
 
+    if (result == -ECONNRESET) {
+        dlog(LOG_INFO, "recv: connection reset by peer\n");
+        return prep_close_client_req(iou, recv_req);
+    }
     io_uring_assert_nonn(result, "CQE recv");
 
     const unsigned int read_bytes = result;
 
     if (read_bytes == 0) {
-        // close client
+        // Received EOF, close client
         return prep_close_client_req(iou, recv_req);
     } else if (read_bytes > DEFAULT_BUFFER_SIZE) {
         dlog(LOG_CRIT, "recv: got more than expected");
