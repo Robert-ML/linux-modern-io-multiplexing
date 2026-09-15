@@ -48,12 +48,35 @@ static int service_cqe_events(
 static void do_service_loop_cleanup(struct iou * const iou);
 static void do_exit_cleanup(const int ls);
 
-/* Consumes CQE/SQE if batching demanded or we are forcing it. Returns 0 if any
-events were submitted. */
+/**
+ * @brief: Consumes CQEs if batching demanded or we are forcing it.
+ *
+ * @param iou: IO Uring struct with the ring info.
+ * @param io_events_completed: How many io events have completed. Tries to
+ * consume that many from the CQE ring if it reached / surpassed the batching
+ * limit or we forced it.
+ * @param force_consumption: Bool to force `io_events_completed` to be consumed
+ * from the CQE ring.
+ *
+ * @returns: 0 if any events were consumed, or the previous
+ * `io_events_completed`.
+*/
 static int handle_cqe_batching(
     struct iou * const iou, const unsigned int io_events_completed,
     const int force_consumption
 );
+
+/**
+ * @brief: Consumes SQEs if batching demanded or we are forcing it.
+ *
+ * @param iou: IO Uring struct with the ring info.
+ * @param io_requests_submitted: How many io requests have been submitted.
+ * Tries to announce that many to the SQE ring if it reached / surpassed the
+ * batching limit.
+ *
+ * @returns: 0 if any requests were submitted, or the previous
+ * `io_requests_submitted`.
+*/
 static int handle_sqe_batching(
     struct iou * const iou, const unsigned int io_requests_submitted
 );
