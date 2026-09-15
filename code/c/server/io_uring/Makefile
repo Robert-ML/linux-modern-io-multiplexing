@@ -5,11 +5,12 @@ include ../../common/Makefile.defines
 CC = gcc
 
 CFLAGS = -Wall -Wextra $(CDEFINES_COMMON) $(CDEFINES_IO_URING)
+LINK_TIME_OPTIMIZATION = -flto
 LIBS = -luring
 
 CFLAGS_DEBUG = -g -Og $(CDEFINES_DEBUG)
 CFLAGS_TEST = -g -O1 $(CDEFINES_TEST)
-CFLAGS_RELEASE = -O3 -flto $(CDEFINES_RELEASE)
+CFLAGS_RELEASE = -O3 $(LINK_TIME_OPTIMIZATION) $(CDEFINES_RELEASE)
 
 
 .PHONY: build build_debug build_test build_release clean clean_full
@@ -45,11 +46,12 @@ test_memory_with_clients: build_test
 
 
 run_profiling: CFLAGS += -g
+run_profiling: LINK_TIME_OPTIMIZATION =
 run_profiling: build_release
 	make -C ../../client/ clean
 	make -C ../../client/ build_test
-	sleep 1 && ../../client/client &> /dev/null &
-	sleep 10 && vgdb -l | awk -F'--pid=| ' '{print $$3}' | xargs kill -s USR1 &
+	sleep 1 && ../../client/client 250000 &> /dev/null &
+	sleep 15 && vgdb -l | awk -F'--pid=| ' '{print $$3}' | xargs kill -s USR1 &
 	valgrind --error-exitcode=101 --tool=callgrind -s ./io_uring_server
 
 
