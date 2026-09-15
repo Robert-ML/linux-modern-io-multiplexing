@@ -99,6 +99,8 @@ struct iou_sq_ring {
     unsigned int *ring_entries;
     unsigned int *flags;
     unsigned int *array;
+
+    unsigned int cached_head; // Cache for the kernel's SQ head
 };
 
 struct iou_cq_ring {
@@ -107,6 +109,8 @@ struct iou_cq_ring {
     unsigned int *ring_mask;
     unsigned int *ring_entries;
     struct io_uring_cqe *cqes;
+
+    unsigned int cached_tail; // Cache for the kernel's CQ tail
 };
 
 struct iou {
