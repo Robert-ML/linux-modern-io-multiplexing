@@ -24,18 +24,29 @@ static void send_message(const int socket_fd);
 static void recv_message(const int socket_fd);
 static void send_n_wait(const int socket_fd);
 
-static void loop(const int socket_fd, const int single_shot);
+/**
+ * @brief: Loop to send messages `count` times. If count < 0 runs indefinitely.
+ */
+static void loop(const int socket_fd, int64_t count);
 
 
-int main(int argc, char **) {
+int main(int argc, char **argv) {
     int socket_fd;
+    int64_t count;
 
     socket_fd = create_ipv4_socket();
     connect_to_server(socket_fd);
 
     dlog(LOG_DEBUG, "Client connected to server\n");
 
-    loop(socket_fd, argc - 1);
+    if (argc == 1) {
+        count = -1;
+    } else {
+        errno = 0;
+        count = strtoll(argv[1], NULL, 10);
+        assert_zero(errno, "stroll");
+    }
+    loop(socket_fd, count);
 
     close(socket_fd);
 
@@ -43,18 +54,21 @@ int main(int argc, char **) {
 }
 
 
-static void loop(const int socket_fd, const int single_shot)
+static void loop(const int socket_fd, int64_t count)
 {
-    while (1) {
+    while (count) {
 #ifdef REQUEST_RESPONSE_MODE
         send_n_wait(socket_fd);
 #elif FIREHOSE_MODE
         send_message(socket_fd);
 #elif IDLE_MODE
 #endif
-        if (single_shot) {
-            break;
+
+        // controls the stop condition
+        if (count < 0) {
+            continue;
         }
+        --count;
     }
 }
 
