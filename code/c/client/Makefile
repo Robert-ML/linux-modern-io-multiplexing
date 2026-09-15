@@ -8,7 +8,7 @@ CFLAGS = -Wall -Wextra $(CDEFINES_COMMON)
 
 CFLAGS_DEBUG = -g -Og $(CDEFINES_DEBUG)
 CFLAGS_TEST = -g -O1 $(CDEFINES_TEST)
-CFLAGS_RELEASE = -O3 $(CDEFINES_RELEASE)
+CFLAGS_RELEASE = -O3 -flto $(CDEFINES_RELEASE)
 
 
 .PHONY: build build_debug build_test build_release clean
