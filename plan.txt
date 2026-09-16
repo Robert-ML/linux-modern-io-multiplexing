@@ -11,3 +11,27 @@ Later:
 - - I lost the list with them, but they where mostly in io_uring_enter man page when dereferencing flags they forgot *, and in the code to check for CQEs
 - io_uring zero copy
 - io_uring multishot accept
+
+
+Man page corrections:
+1.
+```
+unsigned head;
+head = *cqring->head;
+if (head != atomic_load_acquire(cqring->tail)) {
+    struct io_uring_cqe *cqe;
+    unsigned index;
+    index = head & (cqring->mask);
+    cqe = &cqring->cqes[index];
+    /* process completed CQE */
+    process_cqe(cqe);
+    /* CQE consumption complete */
+    head++;
+}
+atomic_store_explicit(cqring->head, head, memory_order_release);
+```
+Shouldn't the atomic_store_explicit be inside the if case?
+https://man7.org/linux/man-pages/man7/io_uring.7.html
+
+2.
+
