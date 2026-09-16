@@ -150,7 +150,7 @@ static void service_loop(const int listening_socket)
         if (cqe == NULL) {
             io_events_completed = handle_cqe_batching(&iou, io_events_completed, 1);
 
-            iou_enter_or_wake(&iou, 0);
+            iou_enter_or_wake(&iou, MIN(1U, iou_get_no_pending_sqes(&iou)));
             continue;
         }
 
