@@ -59,7 +59,7 @@ struct iou_socket_accept {
 
 /**
  * @brief: Structure to help create SQEs. It is passed to
- * `iou_config_and_submit` to create a IO Uring submission. It is also used to
+ * `iou_prep_and_alter_ring` to create a IO Uring submission. It is also used to
  * be passed as the `user_data` pointer.
  */
 struct iou_op {
@@ -121,6 +121,8 @@ struct iou {
 
     struct iou_sq_ring sq_ring;
     struct io_uring_sqe *sqes;
+    // used to track how many SQEs were prepared and not yet submitted
+    unsigned int sqes_head, sqes_tail;
 
     struct iou_cq_ring cq_ring;
 
@@ -139,42 +141,52 @@ struct iou {
 
 struct iou iou_create(const uint32_t ring_size, const int use_kernel_pooling);
 void iou_free(struct iou * const iou);
-/**
- * @brief: Performs `io_enter` and waits for at least a completion event, or
- * wakes kernel thread if is configured SQ_POLL mode. `sig_mask` is used as
- * described in `io_uring_enter(2)` man page.
- */
-void iou_enter_or_wake(
-    struct iou * const iou, const unsigned int to_submit,
-    sigset_t * const sig_mask
-);
+
 
 /**
- * @brief: Performs `io_enter` without waiting for completion events to finish,
- * only with the purpose of notifying the kernel new additions to the SQE ring.
+ * @brief: Performs `io_enter` to announce the kernel of new SQE submissions
+ * (tracked internally), or wakes kernel thread if is configured SQ_POLL mode.
+ * Waits for `min_complete` CQEs to return and can hang indefinitely if not
+ * enough SQEs are submitted internally or not enough CQEs are generated.
  *
- * @note: Not to be used when IO Uring is in SQ_POLL mode.
+ * @param iou: IO Uring struct with the ring info.
+ * @param min_complete: For how many complete events to wait for.
  */
-void iou_notify_submissions(
-    struct iou * const iou, const unsigned int to_submit
-);
+void iou_enter_or_wake(struct iou * const iou, const int min_complete);
 
 
 /**
- * @brief: This function takes the desired operation and makes sure to submit
- * it configured to the IO Uring SQ_ring.
+ * @brief: Readies the SQE with the operation described in the `op`, but does
+ * not yet populate the array with the SQE index and does not increment the
+ * tail of the SQ ring. `iou_submit` must be called for the submission to be
+ * performed.
  *
- * The given `op` will be passed to the SQE as `user_data` to be given back in
- * the completion event. The user must ensure the object's lifetime if desires
- * to use it at the completion event moment.
+ * @param iou: IO Uring struct with the ring info.
+ * @param op: Describes what operation we prepare for IO Uring to perform in
+ * the SQE. The given `op` will be passed to the SQE as `user_data` to be given
+ * back in the CQE. The user must ensure the object's lifetime if desires to
+ * use it at the completion event moment.
  *
  * @return: 0 if it could submit it, otherwise a negative number of error code.
  */
-int iou_config_and_submit(struct iou * const iou, struct iou_op * const op);
+int iou_prep_from_op(struct iou * const iou, struct iou_op * const op);
+
+/**
+ * @brief: Get the number of SQEs that were prepared and not yet given to the
+ * SQ ring through calling `iou_enter_or_wake`.
+ *
+ * @param iou: IO Uring struct with the ring info.
+ *
+ * @return: The number of SQEs that should be submitted through
+ * `iou_enter_or_wake`.
+ */
+unsigned int iou_get_no_pending_sqes(struct iou * const iou);
+
 
 /**
  * @brief: Checks the completion queue, and if there is a completion event it
- *  populates `cqe_out` with the retrieved info.
+ *  populates `cqe_out` with the retrieved info. Consumes the CQE, i.e. marking
+ * it as free to be reused by the kernel.
  *
  * @param iou: IO Uring struct with the ring info.
  * @param cqe_out: CQE that is populated and returned if there is a completed
@@ -182,6 +194,9 @@ int iou_config_and_submit(struct iou * const iou, struct iou_op * const op);
  *
  * @return: `cqe_out` populated with the CQE if there was one, otherwise NULL
  * and `cqe_out` was untouched.
+ *
+ * @note: Dangerous to use together with the `iou_get_cqe_peek` and
+ * `iou_cqe_consume` functions.
  */
 struct io_uring_cqe * iou_get_cqe(
     struct iou * const iou, struct io_uring_cqe * const cqe_out

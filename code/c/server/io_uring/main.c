@@ -67,23 +67,13 @@ static int handle_cqe_batching(
 );
 
 /**
- * @brief: Consumes SQEs if batching demanded or we are forcing it.
+ * @brief: Checks how many SQEs are pending and if batching demands to submit
+ * them.
  *
  * @param iou: IO Uring struct with the ring info.
- * @param io_requests_submitted: How many io requests have been submitted.
- * Tries to announce that many to the SQE ring if it reached / surpassed the
- * batching limit.
- *
- * @returns: 0 if any requests were submitted, or the previous
- * `io_requests_submitted`.
 */
-static int handle_sqe_batching(
-    struct iou * const iou, const unsigned int io_requests_submitted
-);
+static void handle_sqe_batching(struct iou * const iou);
 
-static void create_signal_masks(
-    sigset_t * const o_orig_mask, sigset_t * const o_block_mask
-);
 static int create_accept_sqe(
     struct iou * const iou, struct iou_op * const allocated_op,
     const int listening_socket
@@ -139,10 +129,7 @@ int main(int, char **)
 
 static void service_loop(const int listening_socket)
 {
-    int rc;
-    int io_events_to_submit = 0;
     int io_events_completed = 0;
-    sigset_t orig_mask, block_mask;
     struct io_uring_cqe cqe_storage, *cqe;
     struct iou iou = iou_create(
         IO_URING_RING_SIZE,
@@ -150,18 +137,11 @@ static void service_loop(const int listening_socket)
     );
 
     struct iou_op accept_req = { .mem_tracker = NULL };
-    io_events_to_submit += create_accept_sqe(&iou, &accept_req, listening_socket);
+    create_accept_sqe(&iou, &accept_req, listening_socket);
 
     /* Disabled timer that starts benchmarking inside the server */
     // struct iou_op timer_req = { .mem_tracker = NULL };
-    // io_events_to_submit += create_timer_sqe(&iou, &timer_req);
-
-    create_signal_masks(&orig_mask, &block_mask);
-    // block the loop stopping signal only if io_uring_enter is blocking
-    if (!IO_URING_RUN_IN_KERNEL_POLL_MODE) {
-        rc = sigprocmask(SIG_BLOCK, &block_mask, NULL);
-        assert_zero(rc, "sigprocmask");
-    }
+    // create_timer_sqe(&iou, &timer_req);
 
     while (server_running) {
         cqe = iou_get_cqe_peek(&iou, io_events_completed, &cqe_storage);
@@ -170,8 +150,7 @@ static void service_loop(const int listening_socket)
         if (cqe == NULL) {
             io_events_completed = handle_cqe_batching(&iou, io_events_completed, 1);
 
-            iou_enter_or_wake(&iou, io_events_to_submit, &orig_mask);
-            io_events_to_submit = 0;
+            iou_enter_or_wake(&iou, 0);
             continue;
         }
 
@@ -180,8 +159,10 @@ static void service_loop(const int listening_socket)
 
         dlog(LOG_DEBUG, "Got CQE: user_data: %p | op: %d\n", (void*)cqe->user_data, ((struct iou_op *)cqe->user_data)->op);
 
-        io_events_to_submit += service_cqe_events(&iou, cqe);
-        io_events_to_submit = handle_sqe_batching(&iou, io_events_to_submit);
+        service_cqe_events(&iou, cqe);
+
+        // check if we generated enough pending SQEs to submit them
+        handle_sqe_batching(&iou);
     }
 
     sb_stop(&bench);
@@ -262,20 +243,6 @@ static void do_exit_cleanup(const int ls)
  * Definitions for helpers to init the service loop
  * ========================================================================= */
 
-static void create_signal_masks(
-    sigset_t * const o_orig_mask, sigset_t * const o_block_mask
-)
-{
-    int rc;
-
-    rc = sigprocmask(SIG_BLOCK, NULL, o_orig_mask);
-    assert_zero(rc, "sigprocmask get orig_mask");
-    rc = sigemptyset(o_block_mask);
-    assert_zero(rc, "sigemptyset");
-    rc = sigaddset(o_block_mask, SIGUSR1);
-    assert_zero(rc, "sigaddset");
-}
-
 static int create_accept_sqe(
     struct iou * const iou, struct iou_op * const allocated_op,
     const int listening_socket
@@ -288,8 +255,8 @@ static int create_accept_sqe(
     accept_req->info_accept.fd = listening_socket;
     accept_req->info_accept.addrlen = sizeof(accept_req->info_accept.addr);
 
-    rc = iou_config_and_submit(iou, accept_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(accept_req)");
+    rc = -iou_prep_from_op(iou, accept_req);
+    io_uring_assert_zero(rc, "iou_prep_from_op(accept_req)");
 
     return 1;
 }
@@ -306,8 +273,8 @@ static int create_accept_sqe(
 //     timer_req->info_timer.tv_sec = 10;
 //     timer_req->info_timer.tv_nsec = 0;
 
-//     rc = iou_config_and_submit(iou, timer_req);
-//     io_uring_assert_zero(rc, "iou_config_and_submit(timer_req)");
+//     rc = iou_prep_from_op(iou, timer_req);
+//     io_uring_assert_zero(rc, "iou_prep_from_op(timer_req)");
 
 //     return 1;
 // }
@@ -328,20 +295,15 @@ static int handle_cqe_batching(
     return io_events_completed;
 }
 
-static int handle_sqe_batching(
-    struct iou * const iou, const unsigned int io_requests_submitted
-)
+static void handle_sqe_batching(struct iou * const iou)
 {
-    if (IO_URING_RUN_IN_KERNEL_POLL_MODE) {
-        return io_requests_submitted;
+    unsigned int pending = iou_get_no_pending_sqes(iou);
+
+    if (pending <= IO_URING_SQE_BATCHING) {
+        return;
     }
 
-    if (io_requests_submitted > IO_URING_SQE_BATCHING) {
-        iou_notify_submissions(iou, io_requests_submitted);
-        return 0;
-    }
-
-    return io_requests_submitted;
+    iou_enter_or_wake(iou, 0);
 }
 
 /* =========================================================================
@@ -359,8 +321,8 @@ static int handle_cqe_accept(
     handle_new_client(iou, client_socket);
 
     // resubmit the accept operation
-    rc = iou_config_and_submit(iou, accept_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(accept_req)");
+    rc = iou_prep_from_op(iou, accept_req);
+    io_uring_assert_zero(rc, "iou_prep_from_op(accept_req)");
 
     return 2;
 }
@@ -416,8 +378,8 @@ static int handle_cqe_recv(
     send_req->info_con.buf_send_len = read_bytes;
     send_req->info_con.busy = 1;
 
-    rc = iou_config_and_submit(iou, send_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(send_req)");
+    rc = iou_prep_from_op(iou, send_req);
+    io_uring_assert_zero(rc, "iou_prep_from_op(send_req)");
 
     return 1;
 }
@@ -454,8 +416,8 @@ static int handle_cqe_send(
     recv_req->op = RECV_FROM_CLIENT;
     recv_req->info_con.busy = 1;
 
-    rc = iou_config_and_submit(iou, recv_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(recv_req)");
+    rc = iou_prep_from_op(iou, recv_req);
+    io_uring_assert_zero(rc, "iou_prep_from_op(recv_req)");
 
     return 1;
 }
@@ -502,8 +464,8 @@ static void handle_new_client(struct iou * const iou, const int socket)
     recv_req->op = RECV_FROM_CLIENT;
     recv_req->info_con.busy = 1;
 
-    rc = iou_config_and_submit(iou, recv_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(recv_req)");
+    rc = iou_prep_from_op(iou, recv_req);
+    io_uring_assert_zero(rc, "iou_prep_from_op(recv_req)");
 
     sb_client_connected(&bench);
 }
@@ -517,8 +479,8 @@ static int prep_close_client_req(
 
     close_req->op = CLOSE_CONNECTION;
 
-    rc = iou_config_and_submit(iou, close_req);
-    io_uring_assert_zero(rc, "iou_config_and_submit(close_req)");
+    rc = iou_prep_from_op(iou, close_req);
+    io_uring_assert_zero(rc, "iou_prep_from_op(close_req)");
 
     return 1;
 }

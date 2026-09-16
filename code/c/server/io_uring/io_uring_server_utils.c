@@ -16,17 +16,6 @@
 
 
 /* =========================================================================
- *  Structure definitions for io_uring SQEs
- * ========================================================================= */
-
-struct iou_acquired_sqe_data {
-    struct io_uring_sqe *sqe;
-    unsigned int tail;
-    unsigned int index;
-};
-
-
-/* =========================================================================
  *  Syscall wrappers for io_uring since glibc doesn't have them
  * ========================================================================= */
 
@@ -223,22 +212,56 @@ void iou_free(struct iou * const iou)
 
 
 /* =========================================================================
- *  Definition for `iou_enter_or_wake`
+ *  Definition and helpers for `iou_enter_or_wake`
  * ========================================================================= */
 
-void iou_enter_or_wake(
-    struct iou * const iou, const unsigned int to_submit,
-    sigset_t * const sig_mask
-)
+/**
+ * @brief: Gives the prepared SQEs to the SQ ring. After this function
+ * terminates, a call to `io_uring_enter` should be performed to let the kernel
+ * process the SQEs. Otherwise we might start reusing SQE objects that were not
+ * yet submitted to the kernel.
+ *
+ * @param iou: IO Uring struct with the ring info.
+ *
+ * @returns: The number of SQEs put into the ring
+ */
+static unsigned int iou_give_sqes_to_ring(struct iou * const iou)
+{
+    unsigned int k_tail, index_sq_ring_array, index_sqes;
+    unsigned int to_put = iou->sqes_tail - iou->sqes_head;
+
+    if (!to_put) {
+        return 0;
+    }
+
+    k_tail = *iou->sq_ring.tail;
+    for (unsigned int i = 0; i < to_put; ++i) {
+        index_sq_ring_array = k_tail & (*iou->sq_ring.ring_mask);
+        index_sqes = iou->sqes_head & (*iou->sq_ring.ring_mask);
+        iou->sq_ring.array[index_sq_ring_array] = index_sqes;
+
+        ++k_tail;
+        ++iou->sqes_head;
+    }
+
+    atomic_store_explicit(iou->sq_ring.tail, k_tail, memory_order_release);
+
+    return to_put;
+}
+
+void iou_enter_or_wake(struct iou * const iou, const int min_complete)
 {
     int rc;
-    unsigned int flags;
+    unsigned int flags, prepared;
 
-    // run blocking io_uring_enter and set sigmask
+    prepared = iou_give_sqes_to_ring(iou);
+
+    // run io_uring_enter and set sigmask
     if (!(iou->configuration.flags & IORING_SETUP_SQPOLL)) {
         rc = io_uring_enter(
-            iou->ring_fd, to_submit, 1, IORING_ENTER_GETEVENTS, sig_mask
+            iou->ring_fd, prepared, min_complete, IORING_ENTER_GETEVENTS, NULL
         );
+
         io_uring_assert(
             (rc >= 0) || (rc == -EINTR), rc,
             "io_uring_enter(IORING_ENTER_GETEVENTS)"
@@ -259,69 +282,36 @@ void iou_enter_or_wake(
 
 
 /* =========================================================================
- *  Definition for `iou_notify_submissions`
- * ========================================================================= */
-
-void iou_notify_submissions(
-    struct iou * const iou, const unsigned int to_submit
-)
-{
-    int rc;
-
-    rc = io_uring_enter(
-        iou->ring_fd, to_submit, 0, IORING_ENTER_GETEVENTS, NULL
-    );
-    io_uring_assert(
-        (rc >= 0) || (rc == -EINTR), rc,
-        "io_uring_enter(IORING_ENTER_GETEVENTS)"
-    );
-    return;
-}
-
-
-/* =========================================================================
- *  Definition and helpers for `iou_config_and_submit`
+ *  Definition and helpers for `iou_prep_from_op`
  * ========================================================================= */
 
 /**
- * @brief: Tries to acquire an SQE entry from the ring.
+ * @brief: Tries to get an SQE entry from the ring.
+ *
+ * @param iou: IO Uring struct with the ring info.
  *
  * @return: The acquired SQE wrapped with the tail and index info, which are to
  * be later used in the submission part. If it was not possible to acquire an
  * SQE, NULL is returned in it's field.
  */
-static struct iou_acquired_sqe_data iou_acquire_sqe(struct iou * const iou)
+static struct io_uring_sqe * iou_get_sqe(struct iou * const iou)
 {
-    struct iou_acquired_sqe_data sqe_acquired = {
-        .sqe = NULL,
-    };
-
-    sqe_acquired.tail = *iou->sq_ring.tail;
+    struct io_uring_sqe *sqe = NULL;
+    unsigned int index;
 
     // Check if there is enough space to get an SQE
-    if (sqe_acquired.tail - iou->sq_ring.cached_head >= iou->ring_size) {
-        // if we think there is not enough space, update cache and check again
-        iou->sq_ring.cached_head = atomic_load_explicit(iou->sq_ring.head, memory_order_acquire);
-        if (sqe_acquired.tail - iou->sq_ring.cached_head >= iou->ring_size) {
-            return sqe_acquired;
-        }
+    if (iou->sqes_tail + 1 - iou->sqes_head > iou->configuration.sq_entries) {
+        return NULL;
     }
 
     // extract an available SQE from the ring
-    sqe_acquired.index = sqe_acquired.tail & (*iou->sq_ring.ring_mask);
+    index = iou->sqes_tail & (*iou->sq_ring.ring_mask);
+    sqe = &iou->sqes[index];
+    memset(sqe, 0, sizeof(*sqe));
 
-    sqe_acquired.sqe = &iou->sqes[sqe_acquired.index];
-    memset(sqe_acquired.sqe, 0, sizeof(*sqe_acquired.sqe));
+    ++iou->sqes_tail;
 
-    return sqe_acquired;
-}
-
-static void iou_submit_sqe(
-    struct iou * const iou, const struct iou_acquired_sqe_data sqe_acquired
-)
-{
-    iou->sq_ring.array[sqe_acquired.index] = sqe_acquired.index;
-    atomic_store_explicit(iou->sq_ring.tail, sqe_acquired.tail + 1, memory_order_release);
+    return sqe;
 }
 
 static void iou_prep_accept_sqe(
@@ -386,7 +376,7 @@ static void iou_prep_timer_sqe(
  *
  * @return: 0 if it could submit it, otherwise a negative number of error code.
  */
-static int iou_prep_sqe_for_op(
+static int iou_prep_sqe_from_op(
     struct io_uring_sqe * const sqe, struct iou_op * const op
 )
 {
@@ -428,19 +418,27 @@ static int iou_prep_sqe_for_op(
     return 0;
 }
 
-int iou_config_and_submit(struct iou * const iou, struct iou_op * const op)
+int iou_prep_from_op(struct iou * const iou, struct iou_op * const op)
 {
     int rc;
-    struct iou_acquired_sqe_data sqe_acquired = iou_acquire_sqe(iou);
+    struct io_uring_sqe * sqe = iou_get_sqe(iou);
 
-    rc = iou_prep_sqe_for_op(sqe_acquired.sqe, op);
+    rc = iou_prep_sqe_from_op(sqe, op);
     if (rc) {
         return rc;
     }
 
-    iou_submit_sqe(iou, sqe_acquired);
-
     return 0;
+}
+
+
+/* =========================================================================
+ *  Definition for `iou_get_no_pending_sqes`
+ * ========================================================================= */
+
+unsigned int iou_get_no_pending_sqes(struct iou * const iou)
+{
+    return iou->sqes_tail - iou->sqes_head;
 }
 
 
