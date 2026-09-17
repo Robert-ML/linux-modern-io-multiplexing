@@ -150,8 +150,11 @@ static void service_loop(const int listening_socket)
         if (cqe == NULL) {
             io_events_completed = handle_cqe_batching(&iou, io_events_completed, 1);
 
-            iou_enter_or_wake(&iou, MIN(1U, iou_get_no_pending_sqes(&iou)));
+            iou_enter_or_wake(&iou, 1);
             continue;
+        } else {
+            // check if we generated enough pending SQEs to submit them
+            handle_sqe_batching(&iou);
         }
 
         io_events_completed += 1;
@@ -160,9 +163,6 @@ static void service_loop(const int listening_socket)
         dlog(LOG_DEBUG, "Got CQE: user_data: %p | op: %d\n", (void*)cqe->user_data, ((struct iou_op *)cqe->user_data)->op);
 
         service_cqe_events(&iou, cqe);
-
-        // check if we generated enough pending SQEs to submit them
-        handle_sqe_batching(&iou);
     }
 
     sb_stop(&bench);
