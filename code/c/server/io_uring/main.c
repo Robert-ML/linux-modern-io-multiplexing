@@ -23,10 +23,10 @@
 #error "Define if IO Uring should run in kernel poll mode (1 or 0)"
 #endif
 
-/* Announce CQE consumption in batches */
-#define IO_URING_CQE_BATCHING 256U
 /* Announce SQE submission in batches */
 #define IO_URING_SQE_BATCHING 256U
+/* Announce CQE consumption in batches */
+#define IO_URING_CQE_BATCHING 256U
 
 
 /* =========================================================================
