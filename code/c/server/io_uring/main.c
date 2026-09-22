@@ -255,7 +255,7 @@ static int create_accept_sqe(
     accept_req->info_accept.fd = listening_socket;
     accept_req->info_accept.addrlen = sizeof(accept_req->info_accept.addr);
 
-    rc = -iou_prep_from_op(iou, accept_req);
+    rc = iou_prep_from_op(iou, accept_req);
     io_uring_assert_zero(rc, "iou_prep_from_op(accept_req)");
 
     return 1;
